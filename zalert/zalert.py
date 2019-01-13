@@ -92,7 +92,6 @@ class ZAlert(SBSearch):
         added = 0
         errored = 0
         now = Time.now().iso
-        self.db.isolation_level = None
 
         alerts_insert = '''
         INSERT INTO alerts VALUES (
@@ -134,42 +133,34 @@ class ZAlert(SBSearch):
                 candidate['exptime'] = candidate.get('exptime')
 
                 try:
-                    with self.db:
-                        c = self.db.cursor()
-                        c.execute('BEGIN TRANSACTION')
+                    c = self.db.cursor()
+                    c.execute('''
+                    INSERT OR IGNORE INTO nights
+                    VALUES (NULL,:date,0,:now)
+                    ''', dict(date=night, now=now))
 
-                        c.execute('''
-                        INSERT OR IGNORE INTO nights
-                          VALUES (NULL,:date,0,:now)
-                        ''', dict(date=night, now=now))
+                    candidate['nightid'] = c.execute('''
+                    SELECT nightid FROM nights
+                       WHERE date=:date
+                    ''', dict(date=night)).fetchone()[0]
 
-                        candidate['nightid'] = c.execute('''
-                        SELECT nightid FROM nights
-                           WHERE date=:date
-                        ''', dict(date=night)).fetchone()[0]
-
-                        c.execute('''
-                        UPDATE nights
-                          SET alerts=alerts+1 WHERE date=:date
-                        ''', dict(date=night))
-
-                        ra = np.radians(candidate['ra'])
-                        dec = np.radians(candidate['dec'])
-                        points = util.define_points(ra, dec, HALF_SIZE)
-                        rows = [[None, 'alerts', jd0, jd1, points]]
-                        self.db.add_observations(
-                            rows, other_cmd=alerts_insert,
-                            other_rows=[candidate])
-
-                        c.execute('END TRANSACTION')
+                    ra = np.radians(candidate['ra'])
+                    dec = np.radians(candidate['dec'])
+                    points = util.define_points(ra, dec, HALF_SIZE)
+                    rows = [[None, 'alerts', jd0, jd1, points]]
+                    self.db.add_observations(
+                        rows, other_cmd=alerts_insert,
+                        other_rows=[candidate])
                 except sqlite3.IntegrityError:
-                    self.db.rollback()
                     errored += 1
                     continue
 
+                c.execute('''
+                UPDATE nights SET alerts=alerts+1 WHERE date=:date
+                ''', dict(date=night))
+                
                 added += 1
 
-        self.db.isolation_level = 'DEFERRED'
         self.logger.info('{} files read, {} added to database.'
                          .format(read, added))
         self.logger.warning('{} errored transactions.'.format(errored))
