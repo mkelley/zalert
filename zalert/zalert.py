@@ -1,6 +1,7 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 #import re
 import os
+import sqlite3
 
 import numpy as np
 import astropy.units as u
@@ -12,7 +13,7 @@ from sbsearch import SBSearch
 
 from . import schema, util
 from .config import Config
-from .logging import ProgressTriangle
+from sbsearch.logging import ProgressTriangle
 
 HALF_SIZE = 30 / 206265  # assumed half-FOV size, radians
 
@@ -93,12 +94,35 @@ class ZAlert(SBSearch):
         now = Time.now().iso
         self.db.isolation_level = None
 
+        alerts_insert = '''
+        INSERT INTO alerts VALUES (
+          :nightid,last_insert_rowid(),:jd,:fid,:pid,:diffmaglim,
+          :pdiffimfilename,:programpi,:programid,:candid,
+          :isdiffpos,:tblid,:nid,:rcid,:field,:xpos,:ypos,
+          :ra,:dec,:magpsf,:sigmapsf,:chipsf,:magap,
+          :sigmagap,:distnr,:magnr,:sigmagnr,:chinr,
+          :sharpnr,:sky,:magdiff,:fwhm,:classtar,
+          :mindtoedge,:magfromlim,:seeratio,:aimage,:bimage,
+          :aimagerat,:bimagerat,:elong,:nneg,:nbad,:rb,
+          :ssdistnr,:ssmagnr,:ssnamenr,:sumrat,:magapbig,
+          :sigmagapbig,:ranr,:decnr,:sgmag1,:srmag1,:simag1,
+          :szmag1,:sgscore1,:distpsnr1,:ndethist,:ncovhist,
+          :jdstarthist,:jdendhist,:scorr,:tooflag,
+          :objectidps1,:objectidps2,:sgmag2,:srmag2,:simag2,
+          :szmag2,:sgscore2,:distpsnr2,:objectidps3,
+          :sgmag3,:srmag3,:simag3,:szmag3,:sgscore3,
+          :distpsnr3,:nmtchps,:rfid,:jdstartref,:jdendref,
+          :nframesref,:exptime)
+        '''
+
+        tri = ProgressTriangle(1, self.logger, base=10)
         for path, dirs, files in os.walk(source_path):
             for f in files:
                 if not f.endswith('avro'):
                     continue
 
                 read += 1
+                tri.update()
                 alert = util.avro2dict(os.path.join(path, f))
                 candidate = alert['candidate']
 
@@ -106,10 +130,8 @@ class ZAlert(SBSearch):
 
                 # exptime does not exist in older alerts
                 jd0 = candidate['jd']
-                jd1 = mjd0 + candidate.get('exptime', 0)
+                jd1 = jd0 + candidate.get('exptime', 0)
                 candidate['exptime'] = candidate.get('exptime')
-
-                tri = ProgressTriangle(1, self.logger, base=10)
 
                 try:
                     with self.db:
@@ -124,56 +146,35 @@ class ZAlert(SBSearch):
                         candidate['nightid'] = c.execute('''
                         SELECT nightid FROM nights
                            WHERE date=:date
-                        ''', dict(date=date)).fetchone()[0]
+                        ''', dict(date=night)).fetchone()[0]
 
                         c.execute('''
                         UPDATE nights
                           SET alerts=alerts+1 WHERE date=:date
-                        ''', dict(date=date))
-
-                        c.execute('''                        
-                        INSERT INTO alerts VALUES (
-                          :nightid,:obsid,:jd,:fid,:pid,:diffmaglim,
-                          :pdiffimfilename,:programpi,:programid,:candid,
-                          :isdiffpos,:tblid,:nid,:rcid,:field,:xpos,:ypos,
-                          :ra,:dec,:magpsf,:sigmapsf,:chipsf,:magap,
-                          :sigmagap,:distnr,:magnr,:sigmagnr,:chinr,
-                          :sharpnr,:sky,:magdiff,:fwhm,:classtar,
-                          :mindtoedge,:magfromlim,:seeratio,:aimage,:bimage,
-                          :aimagerat,:bimagerat,:elong,:nneg,:nbad,:rb,
-                          :ssdistnr,:ssmagnr,:ssnamenr,:sumrat,:magapbig,
-                          :sigmagapbig,:ranr,:decnr,:sgmag1,:srmag1,:simag1,
-                          :szmag1,:sgscore1,:distpsnr1,:ndethist,:ncovhist,
-                          :jdstarthist,:jdendhist,:scorr,:tooflag,
-                          :objectidps1,:objectidps2,:sgmag2,:srmag2,:simag2,
-                          :szmag2,:sgscore2,:distpsnr2,:objectidps3,
-                          :sgmag3,:srmag3,:simag3,:szmag3,:sgscore3,
-                          :distpsnr3,:nmtchps,:rfid,:jdstartref,:jdendref,
-                          :nframesref,:exptime
-                        END;
-                        ''', candidate)
+                        ''', dict(date=night))
 
                         ra = np.radians(candidate['ra'])
                         dec = np.radians(candidate['dec'])
                         points = util.define_points(ra, dec, HALF_SIZE)
                         rows = [[None, 'alerts', jd0, jd1, points]]
-                        self.db.add_observations(rows)
-                        tri.update()
+                        self.db.add_observations(
+                            rows, other_cmd=alerts_insert,
+                            other_rows=[candidate])
 
-                    except:
-                        c.rollback()
-                        errored += 1
-                        continue
+                        c.execute('END TRANSACTION')
+                except sqlite3.IntegrityError:
+                    self.db.rollback()
+                    errored += 1
+                    continue
 
-                    added += 1
-
-                if status > 5:
-                    break
-
-            if status > 5:
-                break
+                added += 1
 
         self.db.isolation_level = 'DEFERRED'
         self.logger.info('{} files read, {} added to database.'
                          .format(read, added))
         self.logger.warning('{} errored transactions.'.format(errored))
+
+    def verify_database(self):
+        """Verify database tables, triggers, etc."""
+        super().verify_database(names=schema.zalert_names,
+                                script=schema.schema)

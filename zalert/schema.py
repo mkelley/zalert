@@ -3,7 +3,7 @@
 zalert_names = ['alerts', 'nights', 'alerts_pid', 'alerts_ssnamenr']
 
 schema = '''
-CREATE TABLE IF NOT EXISTS alerts_nights(
+CREATE TABLE IF NOT EXISTS nights(
   nightid INTEGER PRIMARY KEY,
   date TEXT UNIQUE,
   alerts INTEGER,
@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS alerts(
   jdendref FLOAT,
   nframesref INT,
   exptime FLOAT,
-  FOREIGN KEY(nightid) REFERENCES alerts_nights(nightid)
+  FOREIGN KEY(nightid) REFERENCES nights(nightid)
   FOREIGN KEY(obsid) REFERENCES obs(obsid)
 );
 

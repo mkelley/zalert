@@ -10,7 +10,7 @@ import sbsearch.config
 
 __all__ = ['Config']
 
-_config_example = '''
+sbsearch.config._config_example = '''
 {
   "database": "/path/to/zalert.db",
   "log": "/path/to/zalert.log"
@@ -38,6 +38,6 @@ class Config(sbsearch.config.Config):
 
     def __init__(self, **kwargs):
         import json
-        config = json.loads(_config_example)
+        config = json.loads(sbsearch.config._config_example)
         config.update(location='I41', **kwargs)
         super().__init__(**config)
