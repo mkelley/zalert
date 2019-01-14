@@ -78,6 +78,69 @@ class ZAlert(SBSearch):
 
         return tab
 
+    def summarize_observations(self, obsids, add_found=False):
+        """Summarize observations.
+
+        Parameters
+        ----------
+        obsids : tuple or list
+            Observations to summarize.
+
+        add_found : bool, optional
+            Add metadata from found table.
+
+        Returns
+        -------
+        summary : Table
+            Summary table.
+
+        """
+
+        inner_join = ()
+        if add_found:
+            columns = ('foundid,candid,obsid,(jd_start + jd_stop) / 2 AS jd,'
+                       'ra,dec,rh,delta,vmag,magpsf,sigmapsf,magap,sigmagap,'
+                       'fid,ssdistnr,ssnamenr')
+            inner_join += ('found USING (obsid)',)
+            names = ('foundid', 'candid', 'obsid', 'date', 'ra', 'dec', 
+                     'rh', 'delta', 'vmag', 'magpsf', 'sigmapsf',
+                     'magap', 'sigmagap', 'filter id',
+                     'ssdistnr', 'ssnamenr')
+            date_col = 3
+        else:
+            columns = ('candid,obsid,(jd_start + jd_stop) / 2 AS jd,'
+                       'magpsf,sigmapsf,magap,sigmagap,fid,ssdistnr,'
+                       'ssnamenr')
+            names = ('candid', 'obsid', 'date', 'magpsf', 'sigmapsf',
+                     'magap', 'sigmagap', 'filter id', 'ssdistnr',
+                     'ssnamenr')
+            date_col = 2
+
+        inner_join += ('alerts USING (obsid)',)
+
+        rows = []
+        obs = self.db.get_observations_by_id(
+            obsids, columns=columns, inner_join=inner_join, generator=True)
+        for row in obs:
+            rows.append(list(r for r in row[:date_col]) + 
+                         [Time(row[date_col], format='jd').iso[:-4]]
+                        + list([r for r in row[date_col+1:]]))
+
+        if len(rows) == 0:
+            tab = Table(names=names)
+        else:
+            tab = Table(rows=rows, names=names)
+
+        for col in ['magpsf', 'sigmapsf', 'magap', 'sigmagap']:
+            tab[col].format = '{:.3f}'
+
+        filters = ['', 'r', 'g', 'i']
+        tab.add_column(Column([filters[i] for i in tab['filter id']],
+                              name='filter'), index=3)
+        del tab['filter id']
+
+        return tab
+
     def update_alerts(self, source_path):
         """Ingest AVRO alerts from a directory.
 

@@ -1,6 +1,7 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
-zalert_names = ['alerts', 'nights', 'alerts_pid', 'alerts_ssnamenr']
+zalert_names = ['alerts', 'nights', 'alerts_obsid', 'alerts_pid',
+                'alerts_ssnamenr']
 
 schema = '''
 CREATE TABLE IF NOT EXISTS nights(
@@ -100,6 +101,7 @@ CREATE TABLE IF NOT EXISTS alerts(
   FOREIGN KEY(obsid) REFERENCES obs(obsid)
 );
 
+CREATE INDEX IF NOT EXISTS alerts_obsid ON alerts (obsid);
 CREATE INDEX IF NOT EXISTS alerts_pid ON alerts (pid);
 CREATE INDEX IF NOT EXISTS alerts_ssnamenr ON alerts (ssnamenr);
 '''
