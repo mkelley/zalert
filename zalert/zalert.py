@@ -123,7 +123,10 @@ class ZAlert(SBSearch):
                 read += 1
                 tri.update()
                 alert = util.avro2dict(os.path.join(path, f))
-                candidate = alert['candidate']
+                try:
+                    candidate = alert['candidate']
+                except TypeError:
+                    continue
 
                 night = Time(candidate['jd'], format='jd').iso[:10]
 
